@@ -40,7 +40,7 @@ WAMP.prototype = {
                 })
                 .then(function () {
                     if (self.session.hasOwnProperty(method)) return reject("Non-recognized WAMP procedure: " + method);
-                    let result = self.session[params.method](...params);
+                    let result = self.session[method](...params);
                     resolve(result);
                 });
             if (!sync) resolve();
