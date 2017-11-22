@@ -17,6 +17,7 @@ WAMP.prototype = {
         return new Promise(function(resolve, reject) {
             self.queue = Promise.resolve(self.queue)
                 .then(() => {
+                    if (self.session) return;
                     return new Promise(function (resolve2, reject2) {
                         let connect = function () {
                             let wamp = new autobahn.Connection({url: self.router, realm: self.realm, max_retries: 0});
@@ -42,7 +43,8 @@ WAMP.prototype = {
                     if (self.session.hasOwnProperty(method)) return reject("Non-recognized WAMP procedure: " + method);
                     let result = self.session[method](...params);
                     resolve(result);
-                });
+                })
+                .catch(err => winston.error("WAMP error: ", err));
             if (!sync) resolve();
         });
     }
