@@ -11,7 +11,7 @@ function WAMP(router, realm) {
 }
 
 WAMP.prototype = {
-    run(method, params, sync = false) {
+    run(method, params, sync = false, timeout = 60000) {
         if (!method || !params) throw ("Missing mandatory fields");
         let self = this;
         return new Promise(function(resolve, reject) {
@@ -46,6 +46,9 @@ WAMP.prototype = {
                 })
                 .catch(err => winston.error("WAMP error: ", err));
             if (!sync) resolve();
+            else {
+                if (typeof timeout === "number") setTimeout(() => reject({timeout: true}), timeout);
+            }
         });
     }
 };
