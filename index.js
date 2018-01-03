@@ -8,6 +8,9 @@ function WAMP(router, realm) {
     wamp_instance.session = false;
     wamp_instance.queue = undefined;
     wamp_instance.connecting = false;
+    wamp_instance.closed = true;
+    wamp_instance.procedures = {};
+    wamp_instance.subscriptions = {};
     return wamp_instance;
 }
 
@@ -24,20 +27,28 @@ WAMP.prototype = {
                             if (this.connecting) return;
                             winston.verbose("WAMP session starting with " + this.router);
                             this.connecting = true;
+                            this.closed = false;
                             wamp.open();
                         };
                         wamp.onopen = session => {
                             winston.info("WAMP session established with " + this.router);
+                            for (let procedure in this.procedures) {
+                                if (this.procedures.hasOwnProperty(procedure)) this.run("register", this.procedures[procedure]);
+                            }
+
+                            for (let subscription in this.subscriptions) {
+                                if (this.subscriptions.hasOwnProperty(subscription)) this.run("subscribe", this.subscriptions[subscription]);
+                            }
+
                             this.session = session;
                             resolve2();
                         };
                         wamp.onclose = (reason, details) => {
+                            if (this.closed) return;
+                            this.closed = true;
                             this.connecting = false;
-                            if (!this.session) {
-                                winston.warn("WAMP session could not be established with " + this.router + ". Error: " + reason, details);
-                                setTimeout(connect, 5000);
-                            }
-                            else winston.warn("WAMP session lost with " + this.router + ". Error: " + reason);
+                            winston.warn("WAMP session could not be established with " + this.router + ". Error: " + reason);
+                            if (!this.session || Object.keys(this.procedures).length || Object.keys(this.subscriptions).length) setTimeout(connect, 5000);
                             this.session = undefined;
                         };
                         connect();
@@ -46,6 +57,8 @@ WAMP.prototype = {
                 .then(() => {
                     if (this.session.hasOwnProperty(method)) return reject("Non-recognized WAMP procedure: " + method);
                     let result = this.session[method](...params);
+                    if (method === "register") this.procedures[params[0]] = params;
+                    if (method === "subscribe") this.subscriptions[params[0]] = params;
                     resolve(result);
                 })
                 .catch(err => winston.error("WAMP error: ", err));
