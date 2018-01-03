@@ -7,6 +7,7 @@ function WAMP(router, realm) {
     wamp_instance.realm = realm;
     wamp_instance.session = false;
     wamp_instance.queue = undefined;
+    wamp_instance.connecting = false;
     return wamp_instance;
 }
 
@@ -17,18 +18,24 @@ WAMP.prototype = {
         return new Promise((resolve, reject) => {
             self.queue = Promise.resolve(self.queue)
                 .then(() => {
-                    if (self.session) return;
+                    if (self.session && self.session.isOpen) return;
                     return new Promise((resolve2, reject2) => {
                         let wamp = new autobahn.Connection({url: self.router, realm: self.realm, max_retries: 0});
-                        let connect = () => wamp.open();
+                        let connect = () => {
+                            if (this.connecting) return;
+                            winston.verbose("WAMP session starting with " + self.router);
+                            this.connecting = true;
+                            wamp.open();
+                        };
                         wamp.onopen = session => {
                             winston.info("WAMP session established with " + self.router);
                             self.session = session;
                             resolve2();
                         };
                         wamp.onclose = (reason, details) => {
+                            this.connecting = false;
                             if (!self.session) {
-                                winston.warn("WAMP session could not be established with " + self.router + ". Error: " + reason);
+                                winston.warn("WAMP session could not be established with " + self.router + ". Error: " + reason, details);
                                 setTimeout(connect, 5000);
                             }
                             else winston.warn("WAMP session lost with " + self.router + ". Error: " + reason);
