@@ -17,6 +17,7 @@ function WAMP(router, realm) {
 WAMP.prototype = {
     run(method, params, sync = false, timeout = 60000) {
         if (!method || !params) throw ("Missing mandatory fields");
+        let failed = false;
         return new Promise((resolve, reject) => {
             this.queue = Promise.resolve(this.queue)
                 .then(() => {
@@ -55,16 +56,36 @@ WAMP.prototype = {
                     });
                 })
                 .then(() => {
-                    if (this.session.hasOwnProperty(method)) return reject("Non-recognized WAMP procedure: " + method);
-                    let result = this.session[method](...params);
-                    if (method === "register") this.procedures[params[0]] = params;
-                    if (method === "subscribe") this.subscriptions[params[0]] = params;
-                    resolve(result);
+                    return new Promise((resolve2, reject2) => {
+                        let exec = () => {
+                            if (this.session.hasOwnProperty(method)) return reject2("Non-recognized WAMP procedure: " + method);
+                            if (method === "register") this.procedures[params[0]] = params;
+                            if (method === "subscribe") this.subscriptions[params[0]] = params;
+                            let result = this.session[method](...params);
+                            if (result && result.then) {
+                                result.then(result => resolve2(result))
+                                    .catch(err => {
+                                        winston.error("WAMP error: ", err);
+                                        if (err && err.error === "wamp.error.no_such_procedure" && !failed) setTimeout(() => exec(), 5000)
+                                        else reject2(err);
+                                    });
+                            }
+                            else resolve2(result);
+                        };
+                        exec();
+                    });
                 })
-                .catch(err => winston.error("WAMP error: ", err));
+                .then(result => resolve(result))
+                .catch(err => {
+                    winston.error("WAMP error: ", err);
+                    reject(err);
+                });
             if (!sync) resolve();
             else {
-                if (typeof timeout === "number") setTimeout(() => reject({timeout: true}), timeout);
+                if (typeof timeout === "number") setTimeout(() => {
+                    failed = true;
+                    reject({timeout: true});
+                }, timeout);
             }
         });
     }
