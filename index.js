@@ -6,7 +6,6 @@ function WAMP(router, realm) {
     wamp_instance.router = router;
     wamp_instance.realm = realm;
     wamp_instance.session = false;
-    wamp_instance.queue = undefined;
     wamp_instance.connecting = false;
     wamp_instance.closed = true;
     wamp_instance.procedures = {};
@@ -19,7 +18,7 @@ WAMP.prototype = {
         if (!method || !params) throw ("Missing mandatory fields");
         let failed = false;
         return new Promise((resolve, reject) => {
-            this.queue = Promise.resolve(this.queue)
+            Promise.resolve()
                 .then(() => {
                     if (this.session && this.session.isOpen) return;
                     return new Promise((resolve2, reject2) => {
