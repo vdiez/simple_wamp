@@ -10,6 +10,7 @@ function WAMP(router, realm) {
     wamp_instance.closed = true;
     wamp_instance.procedures = {};
     wamp_instance.subscriptions = {};
+    wamp_instance.queue = undefined;
     return wamp_instance;
 }
 
@@ -18,7 +19,7 @@ WAMP.prototype = {
         if (!method || !params) throw ("Missing mandatory fields");
         let failed = false;
         return new Promise((resolve, reject) => {
-            Promise.resolve()
+            this.queue = Promise.resolve(this.queue)
                 .then(() => {
                     if (this.session && this.session.isOpen) return;
                     return new Promise((resolve2, reject2) => {
@@ -55,7 +56,7 @@ WAMP.prototype = {
                     });
                 })
                 .then(() => {
-                    return new Promise((resolve2, reject2) => {
+                    new Promise((resolve2, reject2) => {
                         let exec = () => {
                             if (this.session.hasOwnProperty(method)) return reject2("Non-recognized WAMP procedure: " + method);
                             if (method === "register") this.procedures[params[0]] = params;
@@ -72,9 +73,13 @@ WAMP.prototype = {
                             else resolve2(result);
                         };
                         exec();
+                    })
+                    .then(result => sync && resolve(result))
+                    .catch(err => {
+                        winston.error("WAMP error: ", err);
+                        reject(err);
                     });
                 })
-                .then(result => resolve(result))
                 .catch(err => {
                     winston.error("WAMP error: ", err);
                     reject(err);
