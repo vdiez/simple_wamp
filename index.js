@@ -10,6 +10,8 @@ function WAMP(router, realm) {
     wamp_instance.closed = true;
     wamp_instance.procedures = {};
     wamp_instance.subscriptions = {};
+    wamp_instance.onopen = [];
+    wamp_instance.onclose = [];
     wamp_instance.queue = undefined;
     return wamp_instance;
 }
@@ -31,7 +33,7 @@ WAMP.prototype = {
                             this.closed = false;
                             wamp.open();
                         };
-                        wamp.onopen = session => {
+                        wamp.onopen = (session, details) => {
                             winston.info("WAMP session established with " + this.router);
                             for (let procedure in this.procedures) {
                                 if (this.procedures.hasOwnProperty(procedure)) this.run("register", this.procedures[procedure]);
@@ -41,11 +43,13 @@ WAMP.prototype = {
                                 if (this.subscriptions.hasOwnProperty(subscription)) this.run("subscribe", this.subscriptions[subscription]);
                             }
 
+                            this.onopen.forEach(f => f(session, details));
                             this.session = session;
                             resolve2();
                         };
                         wamp.onclose = (reason, details) => {
                             if (this.closed) return;
+                            if (this.session) this.onclose.forEach(f => f(reason, details));
                             this.closed = true;
                             this.connecting = false;
                             winston.warn("WAMP session could not be established with " + this.router + ". Error: " + reason);
@@ -97,9 +101,18 @@ WAMP.prototype = {
 
 let instances = {};
 module.exports = (router, realm, method, params, sync = false) => {
+    if (router.hasOwnProperty('router') && router.hasOwnProperty('realm')) {
+        sync = params;
+        params = method;
+        method = realm;
+        router = router.router;
+        realm = router.realm;
+    }
     if (router && realm) {
         let key = router + ":" + realm;
         if (!instances.hasOwnProperty(key)) instances[key] = WAMP(router, realm);
+        if (router.onopen) instances[key].onopen.push(router.onopen);
+        if (router.onclose) instances[key].onclose.push(router.onclose);
         if (method && params) return instances[key].run(method, params, sync);
         else return instances[key];
     }
