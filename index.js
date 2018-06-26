@@ -65,12 +65,20 @@ WAMP.prototype = {
                             if (this.session.hasOwnProperty(method)) return reject2("Non-recognized WAMP procedure: " + method);
                             if (method === "register") this.procedures[params[0]] = params;
                             if (method === "subscribe") this.subscriptions[params[0]] = params;
+                            if (method === "unregister") {
+                                delete this.procedures[params[0]];
+                                params.shift();
+                            }
+                            if (method === "unsubscribe") {
+                                delete this.subscriptions[params[0]];
+                                params.shift();
+                            }
                             let result = this.session[method](...params);
                             if (result && result.then) {
                                 result.then(result => resolve2(result))
                                     .catch(err => {
                                         winston.error("WAMP error: ", err);
-                                        if (err && err.error === "wamp.error.no_such_procedure" && !failed) setTimeout(() => exec(), 5000)
+                                        if (err && err.error === "wamp.error.no_such_procedure" && !failed) setTimeout(() => exec(), 5000);
                                         else reject2(err);
                                     });
                             }
@@ -100,7 +108,7 @@ WAMP.prototype = {
 };
 
 let instances = {};
-module.exports = (router, realm, method, params, sync = false) => {
+module.exports = (router, realm, method, params, sync = false, timeout) => {
     if (router.hasOwnProperty('router') && router.hasOwnProperty('realm')) {
         sync = params;
         params = method;
@@ -113,7 +121,7 @@ module.exports = (router, realm, method, params, sync = false) => {
         if (!instances.hasOwnProperty(key)) instances[key] = WAMP(router, realm);
         if (router.onopen) instances[key].onopen.push(router.onopen);
         if (router.onclose) instances[key].onclose.push(router.onclose);
-        if (method && params) return instances[key].run(method, params, sync);
+        if (method && params) return instances[key].run(method, params, sync, timeout);
         else return instances[key];
     }
     throw ("Missing mandatory fields");
