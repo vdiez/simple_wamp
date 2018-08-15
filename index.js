@@ -10,15 +10,14 @@ function WAMP(router, realm) {
     wamp_instance.closed = true;
     wamp_instance.procedures = {};
     wamp_instance.subscriptions = {};
-    wamp_instance.onopen = [];
-    wamp_instance.onclose = [];
+    wamp_instance.onopen = () => {};
+    wamp_instance.onclose = () => {};
     wamp_instance.queue = undefined;
     return wamp_instance;
 }
 
 WAMP.prototype = {
     run(method, params, sync = false, timeout = 60000) {
-        if (!method || !params) throw ("Missing mandatory fields");
         let failed = false;
         return new Promise((resolve, reject) => {
             this.queue = Promise.resolve(this.queue)
@@ -43,13 +42,13 @@ WAMP.prototype = {
                                 if (this.subscriptions.hasOwnProperty(subscription)) this.run("subscribe", this.subscriptions[subscription]);
                             }
 
-                            this.onopen.forEach(f => f(session, details));
+                            this.onopen();
                             this.session = session;
-                            resolve2();
+                            resolve2(this);
                         };
                         wamp.onclose = (reason, details) => {
                             if (this.closed) return;
-                            if (this.session) this.onclose.forEach(f => f(reason, details));
+                            if (this.session) this.onclose();
                             this.closed = true;
                             this.connecting = false;
                             winston.warn("WAMP session could not be established with " + this.router + ". Error: " + reason);
@@ -59,20 +58,11 @@ WAMP.prototype = {
                         connect();
                     });
                 })
-                .then(() => {
+                .then(session => {
+                    if (!method || !params) return session;
                     new Promise((resolve2, reject2) => {
                         let exec = () => {
                             if (this.session.hasOwnProperty(method)) return reject2("Non-recognized WAMP procedure: " + method);
-                            if (method === "register") this.procedures[params[0]] = params;
-                            if (method === "subscribe") this.subscriptions[params[0]] = params;
-                            if (method === "unregister") {
-                                delete this.procedures[params[0]];
-                                params.shift();
-                            }
-                            if (method === "unsubscribe") {
-                                delete this.subscriptions[params[0]];
-                                params.shift();
-                            }
                             let result = this.session[method](...params);
                             if (result && result.then) {
                                 result.then(result => resolve2(result))
@@ -86,7 +76,20 @@ WAMP.prototype = {
                         };
                         exec();
                     })
-                    .then(result => sync && resolve(result))
+                    .then(result => {
+                        if (sync) resolve(result);
+                        winston.debug("Correctly run " + method + " with params: ", params);
+                        if (method === "register") this.procedures[params[0]] = params;
+                        if (method === "subscribe") this.subscriptions[params[0]] = params;
+                        if (method === "unregister") {
+                            delete this.procedures[params[0]];
+                            params.shift();
+                        }
+                        if (method === "unsubscribe") {
+                            delete this.subscriptions[params[0]];
+                            params.shift();
+                        }
+                    })
                     .catch(err => {
                         winston.error("WAMP error: ", err);
                         reject(err);
@@ -109,19 +112,24 @@ WAMP.prototype = {
 
 let instances = {};
 module.exports = (router, realm, method, params, sync = false, timeout) => {
+    let id, onopen, onclose, connect;
     if (router.hasOwnProperty('router') && router.hasOwnProperty('realm')) {
-        sync = params;
-        params = method;
-        method = realm;
-        router = router.router;
+        onopen = router.onopen;
+        onclose = router.onclose;
+        sync = router.sync || false;
+        params = router.params;
+        method = router.method;
         realm = router.realm;
+        router = router.router;
+        connect = router.connect;
     }
     if (router && realm) {
         let key = router + ":" + realm;
         if (!instances.hasOwnProperty(key)) instances[key] = WAMP(router, realm);
-        if (router.onopen) instances[key].onopen.push(router.onopen);
-        if (router.onclose) instances[key].onclose.push(router.onclose);
+        if (typeof onopen === "function") instances[key].onopen = onopen;
+        if (typeof onclose === "function") instances[key].onclose = onclose;
         if (method && params) return instances[key].run(method, params, sync, timeout);
+        else if (connect) return instances[key].run(null, null, true, timeout);
         else return instances[key];
     }
     throw ("Missing mandatory fields");
