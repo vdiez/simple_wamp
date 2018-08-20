@@ -18,7 +18,7 @@ function WAMP(router, realm) {
 
 WAMP.prototype = {
     run(method, params, sync = false, timeout = 60000) {
-        let failed = false;
+        let key, failed = false;
         return new Promise((resolve, reject) => {
             this.queue = Promise.resolve(this.queue)
                 .then(() => {
@@ -60,6 +60,7 @@ WAMP.prototype = {
                 })
                 .then(session => {
                     if (!method || !params) return session;
+                    if (method === "unregister" || method === "unsubscribe") key = params.shift();
                     new Promise((resolve2, reject2) => {
                         let exec = () => {
                             if (this.session.hasOwnProperty(method)) return reject2("Non-recognized WAMP procedure: " + method);
@@ -81,14 +82,8 @@ WAMP.prototype = {
                         winston.debug("Correctly run " + method + " with params: ", params);
                         if (method === "register") this.procedures[params[0]] = params;
                         if (method === "subscribe") this.subscriptions[params[0]] = params;
-                        if (method === "unregister") {
-                            delete this.procedures[params[0]];
-                            params.shift();
-                        }
-                        if (method === "unsubscribe") {
-                            delete this.subscriptions[params[0]];
-                            params.shift();
-                        }
+                        if (method === "unregister") delete this.procedures[key];
+                        if (method === "unsubscribe") delete this.subscriptions[key];
                     })
                     .catch(err => {
                         winston.error("WAMP error: ", err);
@@ -112,7 +107,7 @@ WAMP.prototype = {
 
 let instances = {};
 module.exports = (router, realm, method, params, sync = false, timeout) => {
-    let id, onopen, onclose, connect;
+    let onopen, onclose, connect;
     if (router.hasOwnProperty('router') && router.hasOwnProperty('realm')) {
         onopen = router.onopen;
         onclose = router.onclose;
