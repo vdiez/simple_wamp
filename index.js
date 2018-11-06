@@ -8,6 +8,7 @@ function WAMP(router, realm) {
     wamp_instance.session = false;
     wamp_instance.connection = false;
     wamp_instance.closed = true; //used as sometimes autobahn calls onclose twice
+    wamp_instance.force_close = false;
     wamp_instance.procedures = {};
     wamp_instance.subscriptions = {};
     wamp_instance.onopen = () => {};
@@ -32,7 +33,7 @@ function WAMP(router, realm) {
         if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
         winston.warn("WAMP session could not be established with " + wamp_instance.router + ". Error: " + reason);
         wamp_instance.connection = false;
-        if (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length) setTimeout(() => {wamp_instance.connect();}, 5000);
+        if (!wamp_instance.force_close && (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length)) setTimeout(() => {wamp_instance.connect();}, 5000);
         wamp_instance.session = undefined;
     };
     wamp_instance.resolve_connection = undefined;
@@ -46,6 +47,7 @@ WAMP.prototype = {
             if (this.connection) return resolve(this.connection);
             winston.verbose("WAMP session starting with " + this.router);
             this.closed = false;
+            this.force_close = false;
             this.resolve_connection = resolve;
             this.wamp.open();
         });
@@ -100,6 +102,10 @@ WAMP.prototype = {
                 }, timeout);
             }
         });
+    },
+    disconnect() {
+        this.wamp.close();
+        this.force_close = true;
     }
 };
 
