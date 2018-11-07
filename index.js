@@ -25,6 +25,7 @@ function WAMP(router, realm) {
         }
         wamp_instance.session = session;
         wamp_instance.resolve_connection(wamp_instance);
+        wamp_instance.connection = false;
         wamp_instance.onopen(wamp_instance);
     };
     wamp_instance.wamp.onclose = (reason, details) => {
@@ -32,23 +33,32 @@ function WAMP(router, realm) {
         wamp_instance.closed = true;
         if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
         winston.warn("WAMP session could not be established with " + wamp_instance.router + ". Error: " + reason);
-        wamp_instance.connection = false;
-        if (!wamp_instance.force_close && (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length)) setTimeout(() => {wamp_instance.connect();}, 5000);
+        if (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length) setTimeout(() => {
+            if (!wamp_instance.force_close) {
+                wamp_instance.closed = false;
+                wamp_instance.wamp.open();
+            }
+            else {
+                wamp_instance.force_close = false;
+                wamp_instance.reject_connection(reason);
+            }
+        }, 5000);
         wamp_instance.session = undefined;
     };
     wamp_instance.resolve_connection = undefined;
+    wamp_instance.reject_connection = undefined;
     return wamp_instance;
 }
 
 WAMP.prototype = {
     connect() {
         if (this.session && this.session.isOpen) return this;
-        if (!this.connection) this.connection = new Promise(resolve => {
+        if (!this.connection) this.connection = new Promise((resolve, reject) => {
             if (this.connection) return resolve(this.connection);
             winston.verbose("WAMP session starting with " + this.router);
-            this.closed = false;
-            this.force_close = false;
             this.resolve_connection = resolve;
+            this.reject_connection = reject;
+            this.closed = false;
             this.wamp.open();
         });
         return this.connection;
@@ -104,14 +114,17 @@ WAMP.prototype = {
         });
     },
     disconnect() {
-        this.wamp.close();
+        if (this.session && this.session.isOpen) this.wamp.close();
         this.force_close = true;
+    },
+    reset_connection() {
+        this.connection = false;
     }
 };
 
 let instances = {};
 module.exports = (router, realm, method, params, sync = false, timeout) => {
-    let onopen, onclose, connect;
+    let onopen, onclose;
     if (router.hasOwnProperty('router') && router.hasOwnProperty('realm')) {
         onopen = router.onopen;
         onclose = router.onclose;
@@ -120,7 +133,6 @@ module.exports = (router, realm, method, params, sync = false, timeout) => {
         method = router.method;
         realm = router.realm;
         timeout = router.timeout;
-        connect = router.connect;
         router = router.router;
     }
     if (router && realm) {
@@ -129,7 +141,6 @@ module.exports = (router, realm, method, params, sync = false, timeout) => {
         if (typeof onopen === "function") instances[key].onopen = onopen;
         if (typeof onclose === "function") instances[key].onclose = onclose;
         if (method && params) return instances[key].run(method, params, sync, timeout);
-        else if (connect) return instances[key].run(null, null, sync, timeout);
         else return instances[key];
     }
     throw ("Missing mandatory fields");
