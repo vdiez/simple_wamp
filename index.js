@@ -32,7 +32,7 @@ function WAMP(router, realm) {
         if (wamp_instance.closed) return;
         wamp_instance.closed = true;
         if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
-        winston.warn("WAMP session could not be established with " + wamp_instance.router + ". Error: " + reason);
+        winston.warn("WAMP session closed with " + wamp_instance.router + ". Reason: " + reason);
         if (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length) setTimeout(() => {
             if (!wamp_instance.force_close) {
                 wamp_instance.closed = false;
