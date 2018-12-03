@@ -1,7 +1,7 @@
 let autobahn = require('autobahn');
 let winston = require('winston');
 
-function WAMP(router, realm) {
+function WAMP(router, realm, tls) {
     let wamp_instance = Object.create(WAMP.prototype);
     wamp_instance.router = router;
     wamp_instance.realm = realm;
@@ -14,7 +14,7 @@ function WAMP(router, realm) {
     wamp_instance.onopen = () => {};
     wamp_instance.onclose = () => {};
     wamp_instance.queue = undefined;
-    wamp_instance.wamp = new autobahn.Connection({url: wamp_instance.router, realm: wamp_instance.realm, max_retries: 0});
+    wamp_instance.wamp = new autobahn.Connection({url: wamp_instance.router, realm: wamp_instance.realm, max_retries: 0, tlsConfiguration: tls || {}});
     wamp_instance.wamp.onopen = (session, details) => {
         winston.info("WAMP session established with " + wamp_instance.router);
         for (let procedure in wamp_instance.procedures) {
@@ -124,7 +124,7 @@ WAMP.prototype = {
 
 let instances = {};
 module.exports = (router, realm, method, params, sync = false, timeout) => {
-    let onopen, onclose;
+    let onopen, onclose, tls;
     if (router.hasOwnProperty('router') && router.hasOwnProperty('realm')) {
         onopen = router.onopen;
         onclose = router.onclose;
@@ -133,11 +133,12 @@ module.exports = (router, realm, method, params, sync = false, timeout) => {
         method = router.method;
         realm = router.realm;
         timeout = router.timeout;
+        tls = router.tls;
         router = router.router;
     }
     if (router && realm) {
         let key = router + ":" + realm;
-        if (!instances.hasOwnProperty(key)) instances[key] = WAMP(router, realm);
+        if (!instances.hasOwnProperty(key)) instances[key] = WAMP(router, realm, tls);
         if (typeof onopen === "function") instances[key].onopen = onopen;
         if (typeof onclose === "function") instances[key].onclose = onclose;
         if (method && params) return instances[key].run(method, params, sync, timeout);
