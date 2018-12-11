@@ -64,6 +64,7 @@ WAMP.prototype = {
         return this.connection;
     },
     run(method, params, sync = false, timeout = 60000) {
+        winston.debug("WAMP " + method + " with timeout " + timeout + "ms, sync=" + sync + " and params: ", params);
         let key, rejected = false;
         return new Promise((resolve, reject) => {
             this.queue = Promise.resolve(this.queue)
