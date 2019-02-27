@@ -1,11 +1,11 @@
 let autobahn = require('autobahn');
-let winston = require('winston');
+let log = {info() {}, warn() {}, error() {}, verbose() {}, debug() {}};
 
 function WAMP(params) {
     let wamp_instance = Object.create(WAMP.prototype);
     wamp_instance.config = params;
     wamp_instance.session = false;
-    wamp_instance.connection = false;
+    wamp_instance.pending_connection = false;
     wamp_instance.closed = true; //used as sometimes autobahn calls onclose twice
     wamp_instance.force_close = false;
     wamp_instance.procedures = {};
@@ -24,25 +24,25 @@ function WAMP(params) {
         authextra: params.authextra
     });
     wamp_instance.wamp.onopen = (session, details) => {
-        winston.info("WAMP session established with " + params.url);
+        log.info("WAMP session established with " + params.url);
         for (let procedure in wamp_instance.procedures) {
-            if (wamp_instance.procedures.hasOwnProperty(procedure)) wamp_instance.run("register", wamp_instance.procedures[procedure]);
+            if (wamp_instance.procedures.hasOwnProperty(procedure)) wamp_instance.run("register", wamp_instance.procedures[procedure].params);
         }
         for (let subscription in wamp_instance.subscriptions) {
-            if (wamp_instance.subscriptions.hasOwnProperty(subscription)) wamp_instance.run("subscribe", wamp_instance.subscriptions[subscription]);
+            if (wamp_instance.subscriptions.hasOwnProperty(subscription)) wamp_instance.run("subscribe", wamp_instance.subscriptions[subscription].params);
         }
         wamp_instance.session = session;
         wamp_instance.resolve_connection(wamp_instance);
-        wamp_instance.connection = false;
+        wamp_instance.pending_connection = false;
         wamp_instance.onopen(wamp_instance);
     };
     wamp_instance.wamp.onclose = (reason, details) => {
         if (wamp_instance.closed) return;
         wamp_instance.closed = true;
         if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
-        winston.warn("WAMP session closed with " + params.url + ". Reason: " + reason, details);
+        log.warn("WAMP session closed with " + params.url + ". Reason: " + reason, details);
         if (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length) setTimeout(() => {
-            if (!wamp_instance.force_close) {
+            if (!wamp_instance.force_close && wamp_instance.pending_connection) {
                 wamp_instance.closed = false;
                 wamp_instance.wamp.open();
             }
@@ -61,54 +61,65 @@ function WAMP(params) {
 WAMP.prototype = {
     connect() {
         if (this.session && this.session.isOpen) return this;
-        if (!this.connection) this.connection = new Promise((resolve, reject) => {
-            if (this.connection) return resolve(this.connection);
-            winston.verbose("WAMP session starting with " + this.config.url);
+        if (!this.pending_connection) this.pending_connection = new Promise((resolve, reject) => {
+            if (this.pending_connection) return resolve(this.pending_connection);
+            log.verbose("WAMP session starting with " + this.config.url);
             this.resolve_connection = resolve;
             this.reject_connection = reject;
             this.closed = false;
             this.wamp.open();
         });
-        return this.connection;
+        return this.pending_connection;
     },
     run(method, params, sync = false, timeout = 60000) {
-        let rejected = false;
+        let key, rejected = false;
         return new Promise((resolve, reject) => {
             this.queue = Promise.resolve(this.queue)
                 .then(() => this.connect())
                 .then(session => {
                     if (!method || !params) return resolve(session);
-                    new Promise((resolve2, reject2) => {
+                    if (typeof this.session[method] !== "function") throw "Non-recognized WAMP procedure: " + method;
+                    if (method === "unregister" || method === "unsubscribe") {
+                        key = params[0];
+                        if (typeof key === "string") {
+                            if (method === "unregister" && this.procedures.hasOwnProperty(key)) params[0] = this.procedures[key].registration;
+                            if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) params[0] = this.subscriptions[key].subscription;
+                        }
+                        else {
+                            if (key.procedure && method === "unregister" && this.procedures.hasOwnProperty(key.procedure)) key = key.procedure;
+                            if (key.topic && method === "unsubscribe" && this.subscriptions.hasOwnProperty(key.topic)) key = key.topic;
+                        }
+                    }
+                    new Promise((resolve_execution, reject_execution) => {//we do not return the promise to avoid blocking parallel wamp calls
                         let exec = () => {
-                            if (this.session.hasOwnProperty(method)) return reject2("Non-recognized WAMP procedure: " + method);
                             let result = this.session[method](...params);
                             if (result && result.then) {
-                                result.then(result => resolve2(result))
+                                result.then(result => resolve_execution(result))
                                     .catch(err => {
+                                        log.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
                                         if (err && err.error === "wamp.error.no_such_procedure" && !rejected) setTimeout(() => exec(), 5000);
-                                        else return reject2(err);
-                                        winston.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
+                                        else reject_execution(err);
                                     });
                             }
-                            else resolve2(result);
+                            else resolve_execution(result);
                         };
                         exec();
                     })
                         .then(result => {
                             if (sync) resolve(result);
-                            winston.debug("Correctly run " + method + " with params: ", params);
-                            if (method === "register") this.procedures[params[0]] = params;
-                            if (method === "subscribe") this.subscriptions[params[0]] = params;
-                            if (method === "unregister") delete this.procedures[params[0].topic];
-                            if (method === "unsubscribe") delete this.subscriptions[params[0].topic];
+                            log.debug("Correctly run " + method + " with params: ", params);
+                            if (method === "register") this.procedures[params[0]] = {params: params, registration: result};
+                            if (method === "subscribe") this.subscriptions[params[0]] = {params: params, subscription: result};
+                            if (method === "unregister" && this.procedures.hasOwnProperty(key)) delete this.procedures[key];
+                            if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) delete this.subscriptions[key];
                         })
                         .catch(err => {
-                            winston.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
+                            log.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
                             reject(err);
                         });
                 })
                 .catch(err => {
-                    winston.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
+                    log.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
                     reject(err);
                 });
             if (!sync) resolve();
@@ -123,8 +134,8 @@ WAMP.prototype = {
     register(procedure, endpoint, options) {
         return this.run("register", [procedure, endpoint, options], options.sync, options.timeout)
     },
-    unregister(registration, options) {
-        return this.run("unregister", [registration, options], options.sync, options.timeout)
+    unregister(procedure, options) {
+        return this.run("unregister", [procedure, options], options.sync, options.timeout)
     },
     call(procedure, args, kwargs, options) {
         return this.run("call", [procedure, args, kwargs, options], options.sync, options.timeout)
@@ -132,26 +143,35 @@ WAMP.prototype = {
     subscribe(topic, handler, options) {
         return this.run("subscribe", [topic, handler, options], options.sync, options.timeout)
     },
-    unsubscribe(subscription, options) {
-        return this.run("unsubscribe", [subscription, options], options.sync, options.timeout)
+    unsubscribe(topic, options) {
+        return this.run("unsubscribe", [topic, options], options.sync, options.timeout)
     },
     publish(topic, args, kwargs, options) {
         return this.run("publish", [topic, args, kwargs, options], options.sync, options.timeout)
     },
     disconnect() {
         if (this.session && this.session.isOpen) this.wamp.close();
+        this.pending_connection = false;
         this.force_close = true;
     },
-    reset_connection() {
-        this.connection = false;
+    reset_pending_connection() {
+        this.pending_connection = false;
     }
 };
 
 let instances = {};
 let most_recent;
-module.exports = ({router, method, params, sync = false, timeout} = {}) => {
+module.exports = ({router, logger, method, params, sync = false, timeout} = {}) => {
     if (!router && most_recent) router = most_recent;
-    else if (router.save) most_recent = router;
+    else if (router && router.save) most_recent = router;
+
+    if (logger) {
+        if (typeof logger.info === "function") log.info = logger.info;
+        if (typeof logger.warn === "function") log.warn = logger.warn;
+        if (typeof logger.error === "function") log.error = logger.error;
+        if (typeof logger.debug === "function") log.debug = logger.debug;
+        if (typeof logger.verbose === "function") log.verbose = logger.verbose;
+    }
 
     if (!router || !router.hasOwnProperty('url') || !router.hasOwnProperty('realm')) throw ("Missing mandatory fields");
 
