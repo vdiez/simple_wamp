@@ -42,9 +42,10 @@ function WAMP(params) {
         if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
         log.warn("WAMP session closed with " + params.url + ". Reason: " + reason, details);
         if (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length) setTimeout(() => {
-            if (!wamp_instance.force_close && wamp_instance.pending_connection) {
+            if (!wamp_instance.force_close) {
                 wamp_instance.closed = false;
-                wamp_instance.wamp.open();
+                if (wamp_instance.pending_connection) wamp_instance.wamp.open();
+                else wamp_instance.connect();
             }
             else {
                 wamp_instance.force_close = false;
@@ -150,11 +151,13 @@ WAMP.prototype = {
         return this.run("publish", [topic, args, kwargs, options], options.sync, options.timeout)
     },
     disconnect() {
-        if (this.session && this.session.isOpen) this.wamp.close();
+        this.reject_connection("disconnect connection command");
         this.pending_connection = false;
         this.force_close = true;
+        if (this.session && this.session.isOpen) this.wamp.close();
     },
     reset_pending_connection() {
+        this.reject_connection("reset connection command");
         this.pending_connection = false;
     }
 };
