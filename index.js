@@ -82,13 +82,15 @@ WAMP.prototype = {
                     if (typeof this.session[method] !== "function") throw "Non-recognized WAMP procedure: " + method;
                     if (method === "unregister" || method === "unsubscribe") {
                         key = params[0];
-                        if (typeof key === "string") {
+                        if (typeof key === "string") {//uri is passed as key
                             if (method === "unregister" && this.procedures.hasOwnProperty(key)) params[0] = this.procedures[key].registration;
-                            if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) params[0] = this.subscriptions[key].subscription;
+                            else if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) params[0] = this.subscriptions[key].subscription;
+                            else throw "Procedure or topic has not been registered";
                         }
-                        else {
+                        else {//autobahn subscription/registration is passed as key
                             if (key.procedure && method === "unregister" && this.procedures.hasOwnProperty(key.procedure)) key = key.procedure;
-                            if (key.topic && method === "unsubscribe" && this.subscriptions.hasOwnProperty(key.topic)) key = key.topic;
+                            else if (key.topic && method === "unsubscribe" && this.subscriptions.hasOwnProperty(key.topic)) key = key.topic;
+                            else throw "Procedure or topic has not been registered";
                         }
                     }
                     new Promise((resolve_execution, reject_execution) => {//we do not return the promise to avoid blocking parallel wamp calls
@@ -132,22 +134,22 @@ WAMP.prototype = {
             }
         });
     },
-    register(procedure, endpoint, options) {
+    register(procedure, endpoint, options = {}) {
         return this.run("register", [procedure, endpoint, options], options.sync, options.timeout)
     },
-    unregister(procedure, options) {
+    unregister(procedure, options = {}) {
         return this.run("unregister", [procedure, options], options.sync, options.timeout)
     },
-    call(procedure, args, kwargs, options) {
+    call(procedure, args, kwargs, options = {}) {
         return this.run("call", [procedure, args, kwargs, options], options.sync, options.timeout)
     },
-    subscribe(topic, handler, options) {
+    subscribe(topic, handler, options = {}) {
         return this.run("subscribe", [topic, handler, options], options.sync, options.timeout)
     },
-    unsubscribe(topic, options) {
+    unsubscribe(topic, options = {}) {
         return this.run("unsubscribe", [topic, options], options.sync, options.timeout)
     },
-    publish(topic, args, kwargs, options) {
+    publish(topic, args, kwargs, options = {}) {
         return this.run("publish", [topic, args, kwargs, options], options.sync, options.timeout)
     },
     disconnect() {
