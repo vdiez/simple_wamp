@@ -23,6 +23,6 @@
   },
   "homepage": "https://github.com/vdiez/simple_wamp#readme",
   "dependencies": {
-    "autobahn": "^19.6.2"
+    "autobahn": "^18.10.2"
   }
 }

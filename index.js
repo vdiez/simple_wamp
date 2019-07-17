@@ -54,8 +54,8 @@ function WAMP(params) {
         }, 5000);
         wamp_instance.session = undefined;
     };
-    wamp_instance.resolve_connection = undefined;
-    wamp_instance.reject_connection = undefined;
+    wamp_instance.resolve_connection = () => {};
+    wamp_instance.reject_connection = () => {};
     return wamp_instance;
 }
 
