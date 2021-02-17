@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/vdiez/simple_wamp#readme",
   "dependencies": {
-    "autobahn": "^20.9.1"
+    "autobahn": "^20.9.2",
+    "sprintf-js": "^1.1.2"
   }
 }
