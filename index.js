@@ -110,7 +110,7 @@ WAMP.prototype = {
                     })
                         .then(result => {
                             if (sync) resolve(result);
-                            log.debug("Correctly run " + method + " with params: ", params);
+                            log.verbose("Correctly run " + method + " with params: ", params);
                             if (method === "register") this.procedures[params[0]] = {params: params, registration: result};
                             if (method === "subscribe") this.subscriptions[params[0]] = {params: params, subscription: result};
                             if (method === "unregister" && this.procedures.hasOwnProperty(key)) delete this.procedures[key];
