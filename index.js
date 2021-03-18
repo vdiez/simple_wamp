@@ -1,5 +1,5 @@
 let autobahn = require('autobahn');
-let log = {info() {}, warn() {}, error() {}, verbose() {}, debug() {}};
+let log = {error() {}, warn() {}, info() {}, verbose() {}, debug() {}, silly() {}};
 
 function WAMP(params) {
     let wamp_instance = Object.create(WAMP.prototype);
@@ -83,8 +83,8 @@ WAMP.prototype = {
                     if (method === "unregister" || method === "unsubscribe") {
                         key = params[0];
                         if (typeof key === "string") {//uri is passed as key
-                            if (method === "unregister" && this.procedures.hasOwnProperty(key)) params[0] = this.procedures[key].registration;
-                            else if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) params[0] = this.subscriptions[key].subscription;
+                            if (method === "unregister" && this.procedures.hasOwnProperty(key)) params = [this.procedures[key].registration];
+                            else if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) params = [this.subscriptions[key].subscription];
                             else throw "Procedure or topic has not been registered";
                         }
                         else {//autobahn subscription/registration is passed as key
@@ -110,7 +110,8 @@ WAMP.prototype = {
                     })
                         .then(result => {
                             if (sync) resolve(result);
-                            log.verbose("Correctly run " + method + " with params: ", params);
+                            if (method === "unregister" || method === "unsubscribe") log.silly("Correctly run " + method + " on ", key);
+                            else log.silly("Correctly run " + method + " with params: ", params);
                             if (method === "register") this.procedures[params[0]] = {params: params, registration: result};
                             if (method === "subscribe") this.subscriptions[params[0]] = {params: params, subscription: result};
                             if (method === "unregister" && this.procedures.hasOwnProperty(key)) delete this.procedures[key];
@@ -176,6 +177,7 @@ module.exports = ({router, logger, method, params, sync = false, timeout} = {}) 
         if (typeof logger.error === "function") log.error = logger.error;
         if (typeof logger.debug === "function") log.debug = logger.debug;
         if (typeof logger.verbose === "function") log.verbose = logger.verbose;
+        if (typeof logger.silly === "function") log.silly = logger.silly;
     }
 
     if (!router || !router.hasOwnProperty('url') || !router.hasOwnProperty('realm')) throw ("Missing mandatory fields");
