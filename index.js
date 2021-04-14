@@ -72,7 +72,7 @@ WAMP.prototype = {
         });
         return this.pending_connection;
     },
-    run(method, params, sync = false, timeout = 60000) {
+    run(method, params, sync = false, timeout = 60000, retry_if_unregistered = true) {
         let key, rejected = false;
         return new Promise((resolve, reject) => {
             this.queue = Promise.resolve(this.queue)
@@ -100,7 +100,7 @@ WAMP.prototype = {
                                 result.then(result => resolve_execution(result))
                                     .catch(err => {
                                         log.error("WAMP error on " + method + " with params: ", params, "Error: ", err);
-                                        if (err && err.error === "wamp.error.no_such_procedure" && !rejected) setTimeout(() => exec(), 5000);
+                                        if (err?.error === "wamp.error.no_such_procedure" && retry_if_unregistered && !rejected) setTimeout(() => exec(), 5000);
                                         else reject_execution(err);
                                     });
                             }
@@ -142,7 +142,7 @@ WAMP.prototype = {
         return this.run("unregister", [procedure, options], options.sync, options.timeout)
     },
     call(procedure, args, kwargs, options = {}) {
-        return this.run("call", [procedure, args, kwargs, options], options.sync, options.timeout)
+        return this.run("call", [procedure, args, kwargs, options], options.sync, options.timeout, options.retry_if_unregistered)
     },
     subscribe(topic, handler, options = {}) {
         return this.run("subscribe", [topic, handler, options], options.sync, options.timeout)
