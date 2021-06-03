@@ -8,6 +8,7 @@ function WAMP(params) {
     wamp_instance.pending_connection = false;
     wamp_instance.closed = true; //used as sometimes autobahn calls onclose twice
     wamp_instance.force_close = false;
+    wamp_instance.retry_timeout = null;
     wamp_instance.procedures = {};
     wamp_instance.subscriptions = {};
     wamp_instance.onopen = typeof params.onopen === "function" ? params.onopen : () => {};
@@ -39,19 +40,20 @@ function WAMP(params) {
     wamp_instance.wamp.onclose = (reason, details) => {
         if (wamp_instance.closed) return;
         wamp_instance.closed = true;
-        if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
         log.warn("WAMP session closed with " + params.url + ". Reason: " + reason, details);
-        if (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length) setTimeout(() => {
-            if (!wamp_instance.force_close) {
+        if (wamp_instance.session) wamp_instance.onclose(wamp_instance);
+        if (!wamp_instance.force_close && (!wamp_instance.session || Object.keys(wamp_instance.procedures).length || Object.keys(wamp_instance.subscriptions).length)) {
+            if (wamp_instance.retry_timeout) {
+                clearTimeout(wamp_instance.retry_timeout);
+                wamp_instance.retry_timeout = null;
+            }
+            wamp_instance.retry_timeout = setTimeout(() => {
                 wamp_instance.closed = false;
-                if (wamp_instance.pending_connection) wamp_instance.wamp.open();
+                log.warn("Retrying WAMP connection with " + params.url);
+                if (wamp_instance.pending_connection) try {wamp_instance.wamp.open()} catch(e) {}
                 else wamp_instance.connect();
-            }
-            else {
-                wamp_instance.force_close = false;
-                wamp_instance.reject_connection(reason);
-            }
-        }, 5000);
+            }, 30000);
+        }
         wamp_instance.session = undefined;
     };
     wamp_instance.resolve_connection = () => {};
@@ -67,6 +69,7 @@ WAMP.prototype = {
             log.verbose("WAMP session starting with " + this.config.url);
             this.resolve_connection = resolve;
             this.reject_connection = reject;
+            this.force_close = false;
             this.closed = false;
             this.wamp.open();
         });
@@ -157,11 +160,7 @@ WAMP.prototype = {
         this.reject_connection("disconnect connection command");
         this.pending_connection = false;
         this.force_close = true;
-        if (this.session && this.session.isOpen) this.wamp.close();
-    },
-    reset_pending_connection() {
-        this.reject_connection("reset connection command");
-        this.pending_connection = false;
+        return this.wamp.close();
     }
 };
 
