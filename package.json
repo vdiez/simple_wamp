@@ -1,6 +1,6 @@
 {
   "name": "simple_wamp",
-  "version": "2.0.12",
+  "version": "2.1.0",
   "description": "Stateless Autobahn to avoid keeping track of the session object",
   "main": "index.js",
   "scripts": {
