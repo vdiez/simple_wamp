@@ -109,7 +109,7 @@ class WAMP {
                 else throw "Procedure or topic has not been registered";
             }
         }
-        const result = await new Promise((resolve_execution, reject_execution) => {//we do not return the promise to avoid blocking parallel wamp calls
+        new Promise((resolve_execution, reject_execution) => {//we do not await the promise to avoid blocking parallel wamp calls
             let exec = async () => {
                 let result = await Promise.resolve()
                     .then(() => this.session[method](...params))
@@ -123,15 +123,20 @@ class WAMP {
                 else resolve_execution(result);
             };
             exec();
-        });
-
-        resolve(result);
-        if (method === "unregister" || method === "unsubscribe") log.silly(`Correctly run ${method} on ${key}`);
-        else log.silly(`Correctly run ${method} with params: `, params);
-        if (method === "register") this.procedures[params[0]] = {params: params, registration: result};
-        if (method === "subscribe") this.subscriptions[params[0]] = {params: params, subscription: result};
-        if (method === "unregister" && this.procedures.hasOwnProperty(key)) delete this.procedures[key];
-        if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) delete this.subscriptions[key];
+        })
+            .then(result => {
+                resolve(result);
+                if (method === "unregister" || method === "unsubscribe") log.silly(`Correctly run ${method} on ${key}`);
+                else log.silly(`Correctly run ${method} with params: `, params);
+                if (method === "register") this.procedures[params[0]] = {params: params, registration: result};
+                if (method === "subscribe") this.subscriptions[params[0]] = {params: params, subscription: result};
+                if (method === "unregister" && this.procedures.hasOwnProperty(key)) delete this.procedures[key];
+                if (method === "unsubscribe" && this.subscriptions.hasOwnProperty(key)) delete this.subscriptions[key];
+            })
+            .catch(err => {
+                log.error(`WAMP error on ${method} with params: `, params, err);
+                reject(err);
+            });
     }
 
     async loop() {
