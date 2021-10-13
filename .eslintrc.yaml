@@ -1,0 +1,37 @@
+parserOptions:
+  ecmaVersion: 2021
+env:
+  node: true
+  es6: true
+extends:
+  - eslint:recommended
+  - airbnb-base
+rules:
+  no-prototype-builtins: off
+  indent: ["error", 4]
+  camelcase: off
+  max-len: off
+  no-underscore-dangle: off
+  consistent-return: off
+  arrow-parens: off
+  object-curly-newline: off
+  no-param-reassign: off
+  brace-style: [2, "stroustrup", { "allowSingleLine": true }]
+  comma-dangle: off
+  curly: off
+  no-throw-literal: off
+  no-restricted-syntax: off
+  no-await-in-loop: off
+  no-confusing-arrow: off
+  no-continue: off
+  no-plusplus: off
+  object-curly-spacing: ["error", "never"]
+  no-shadow: off
+  one-var-declaration-per-line: off
+  spaced-comment: off
+  prefer-destructuring: off
+  one-var: off
+  operator-linebreak: off
+  block-spacing: ["error", "never"]
+  strict: off
+  object-shorthand: ["error", "always"]
