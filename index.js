@@ -2,14 +2,15 @@
 
 const autobahn = require('autobahn');
 
-const log = {error() {}, warn() {}, info() {}, verbose() {}, debug() {}, silly() {}};
+const silentLogger = {info() {}, warn() {}, error() {}, verbose() {}, debug() {}, silly() {}};
 autobahn.log.warn = () => {};
 autobahn.log.warn = () => {};
 autobahn.log.debug = () => {};
 
 class WAMP {
-    constructor(params) {
+    constructor(params, logger) {
         this.config = params;
+        this.logger = logger;
         if (typeof this.config.max_retries !== 'number') this.config.max_retries = -1;
         if (typeof this.config.initial_retry_delay !== 'number' || this.config.initial_retry_delay < 0) this.config.initial_retry_delay = 1.5;
         if (typeof this.config.retry_delay_growth !== 'number' || this.config.retry_delay_growth < 1) this.config.retry_delay_growth = 1.5;
@@ -58,12 +59,13 @@ class WAMP {
 
         this.wamp.onopen = (session, details) => {
             this.reset_delay();
-            log.info(`WAMP session established with ${this.config.url}`, details);
+            this.logger.info(`WAMP session established with ${this.config.url}`);
+            this.logger.silly(`WAMP session details ${this.config.url}`, details);
             for (const procedure in this.procedures) {
-                if (this.procedures.hasOwnProperty(procedure)) this.run('register', this.procedures[procedure].params).catch(err => log.error('Failed to register procedure', err));
+                if (this.procedures.hasOwnProperty(procedure)) this.run('register', this.procedures[procedure].params).catch(err => this.logger.error('Failed to register procedure', err));
             }
             for (const subscription in this.subscriptions) {
-                if (this.subscriptions.hasOwnProperty(subscription)) this.run('subscribe', this.subscriptions[subscription].params).catch(err => log.error('Failed to subscribe to topic', err));
+                if (this.subscriptions.hasOwnProperty(subscription)) this.run('subscribe', this.subscriptions[subscription].params).catch(err => this.logger.error('Failed to subscribe to topic', err));
             }
             this.session = session;
             this.resolve_connection();
@@ -75,37 +77,42 @@ class WAMP {
             if (this.session) this.onclose(this);
             this.session = undefined;
 
-            if (this.force_close) log.warn(`WAMP session explicitly closed with ${this.config.url}`);
+            if (this.force_close) this.logger.warn(`WAMP session explicitly closed with ${this.config.url}`);
             else if (this.pending_connection) { //reuse same promise
-                log.warn(`Could not connect with ${this.config.url}. Details:`, reason, details);
+                this.logger.warn(`Could not connect with ${this.config.url}. Reason:`, reason);
+                this.logger.silly(`Could not connect with ${this.config.url}. Details:`, details);
                 this.create_wamp(); //we try with a new object to avoid multiple onclose events from autobahn
                 this.compute_delay(err => {
                     if (err) this.reject_connection(err);
                     else {
                         try {
-                            log.warn('Retrying...');
+                            this.logger.warn('Retrying...');
                             this.wamp.open();
                         }
-                        catch (e) {log.warn(`Could not open WAMP connection with ${this.config.url}. Error:`, err);}
+                        catch (e) {this.logger.warn(`Could not open WAMP connection with ${this.config.url}. Error:`, err);}
                     }
                 });
             }
             else if (this.queue.length || Object.keys(this.procedures).length || Object.keys(this.subscriptions).length || this.config.always_connected) {
-                log.warn(`WAMP session with ${this.config.url} has been lost. Details:`, reason, details);
+                this.logger.warn(`WAMP session with ${this.config.url} has been lost. Reason:`, reason);
+                this.logger.silly(`WAMP session with ${this.config.url} has been lost. Details:`, details);
                 this.compute_delay(err => {
                     if (!err) {
-                        log.warn('Reconnecting...');
+                        this.logger.warn('Reconnecting...');
                         this.create_connection();
                         this.pending_connection.catch(() => {});
                     }
                 });
             }
-            else log.warn(`WAMP session with ${this.config.url} has been lost. No more retries until further WAMP calls. Details:`, reason, details);
+            else {
+                this.logger.warn(`WAMP session with ${this.config.url} has been lost. No more retries until further WAMP calls. Reason:`, reason);
+                this.logger.silly(`WAMP session with ${this.config.url} has been lost. No more retries until further WAMP calls. Details:`, details);
+            }
         };
     }
 
     create_connection() {
-        log.verbose(`WAMP session starting with ${this.config.url}`);
+        this.logger.verbose(`WAMP session starting with ${this.config.url}`);
         this.pending_connection = new Promise((resolve, reject) => {
             this.resolve_connection = resolve;
             this.reject_connection = reject;
@@ -117,7 +124,7 @@ class WAMP {
     async exec({method, params, sync, timeout, continue_retrying_after_timeout = true, retry_if_unregistered, resolve, reject}) {
         let key, rejected = false;
         if (!sync) resolve();
-        else if (typeof timeout === 'number') {
+        if (typeof timeout === 'number') {
             setTimeout(() => {
                 if (!continue_retrying_after_timeout) {
                     this.pending_connection = false;
@@ -151,31 +158,26 @@ class WAMP {
             else throw 'Procedure or topic has not been registered';
         }
         new Promise((resolve_execution, reject_execution) => {//we do not await the promise to avoid blocking parallel wamp calls
-            const exec = async () => {
-                const result = await Promise.resolve()
-                    .then(() => this.session[method](...params))
-                    .catch(err => {
-                        if (err?.error === 'wamp.error.no_such_procedure' && retry_if_unregistered && !rejected) return {simple_wamp_retry: true};
-                        return {simple_wamp_error: err};
-                    });
-
-                if (result?.simple_wamp_retry) setTimeout(() => exec(), 5000);
-                else if (result?.simple_wamp_error) reject_execution(result.simple_wamp_error);
-                else resolve_execution(result);
-            };
+            const exec = () => Promise.resolve()
+                .then(() => this.session[method](...params))
+                .then(result => {resolve_execution(result);})
+                .catch(err => {
+                    if (err?.error === 'wamp.error.no_such_procedure' && retry_if_unregistered && !rejected) setTimeout(() => exec(), 5000);
+                    else reject_execution(err);
+                });
             exec();
         })
             .then(result => {
                 resolve(result);
-                if (method === 'unregister' || method === 'unsubscribe') log.silly(`Correctly run ${method} on ${key}`);
-                else log.silly(`Correctly run ${method} with params: `, params);
+                if (method === 'unregister' || method === 'unsubscribe') this.logger.silly(`Correctly run ${method} on ${key}`);
+                else this.logger.silly(`Correctly run ${method} with params: `, params);
                 if (method === 'register') this.procedures[params[0]] = {params, registration: result};
                 if (method === 'subscribe') this.subscriptions[params[0]] = {params, subscription: result};
                 if (method === 'unregister' && this.procedures.hasOwnProperty(key)) delete this.procedures[key];
                 if (method === 'unsubscribe' && this.subscriptions.hasOwnProperty(key)) delete this.subscriptions[key];
             })
             .catch(err => {
-                log.error(`WAMP error on ${method} with params: `, params, err);
+                this.logger.error(`WAMP error on ${method} with params: `, params, err);
                 reject(err);
             });
     }
@@ -183,45 +185,45 @@ class WAMP {
     async loop() {
         if (this.running || !this.queue.length) return;
         this.running = true;
-        const {method, params, sync, timeout, retry_if_unregistered, resolve, reject} = this.queue.shift();
-        await this.exec({method, params, sync, timeout, retry_if_unregistered, resolve, reject})
+        const params = this.queue.shift();
+        await this.exec(params)
             .catch(err => {
-                log.error(`WAMP error on ${method} with params: `, params, err);
-                reject(err);
+                this.logger.error(`WAMP error on ${params.method} with params: `, params, err);
+                params.reject(err);
             });
         this.running = false;
-        this.loop().catch(err => log.error('Error looping WAMP jobs', err));
+        this.loop().catch(err => this.logger.error('Error looping WAMP jobs', err));
     }
 
-    run(method, params, sync = false, timeout = 60000, retry_if_unregistered = true) {
+    run(method, params, sync = false, timeout = 60000, retry_if_unregistered = true, continue_retrying_after_timeout = true) {
         return new Promise((resolve, reject) => {
-            this.queue.push({method, params, sync, timeout, retry_if_unregistered, resolve, reject});
-            this.loop().catch(err => log.error('Error looping WAMP jobs', err));
+            this.queue.push({method, params, sync, timeout, retry_if_unregistered, continue_retrying_after_timeout, resolve, reject});
+            this.loop().catch(err => this.logger.error('Error looping WAMP jobs', err));
         });
     }
 
     register(procedure, endpoint, options = {}) {
-        return this.run('register', [procedure, endpoint, options], options.sync, options.timeout);
+        return this.run('register', [procedure, endpoint, options], options.sync, options.timeout, false, options.continue_retrying_after_timeout);
     }
 
     unregister(procedure, options = {}) {
-        return this.run('unregister', [procedure, options], options.sync, options.timeout);
+        return this.run('unregister', [procedure, options], options.sync, options.timeout, false, options.continue_retrying_after_timeout);
     }
 
     call(procedure, args, kwargs, options = {}) {
-        return this.run('call', [procedure, args, kwargs, options], options.sync, options.timeout, options.retry_if_unregistered);
+        return this.run('call', [procedure, args, kwargs, options], options.sync, options.timeout, options.retry_if_unregistered, options.continue_retrying_after_timeout);
     }
 
     subscribe(topic, handler, options = {}) {
-        return this.run('subscribe', [topic, handler, options], options.sync, options.timeout);
+        return this.run('subscribe', [topic, handler, options], options.sync, options.timeout, false, options.continue_retrying_after_timeout);
     }
 
     unsubscribe(topic, options = {}) {
-        return this.run('unsubscribe', [topic, options], options.sync, options.timeout);
+        return this.run('unsubscribe', [topic, options], options.sync, options.timeout, false, options.continue_retrying_after_timeout);
     }
 
     publish(topic, args, kwargs, options = {}) {
-        return this.run('publish', [topic, args, kwargs, options], options.sync, options.timeout);
+        return this.run('publish', [topic, args, kwargs, options], options.sync, options.timeout, false, options.continue_retrying_after_timeout);
     }
 
     disconnect() {
@@ -239,20 +241,11 @@ module.exports = ({router, logger, method, params, sync = false, timeout} = {}) 
     if (!router && most_recent) router = most_recent;
     else if (router && router.save) most_recent = router;
 
-    if (logger) {
-        if (typeof logger.info === 'function') log.info = logger.info;
-        if (typeof logger.warn === 'function') log.warn = logger.warn;
-        if (typeof logger.error === 'function') log.error = logger.error;
-        if (typeof logger.debug === 'function') log.debug = logger.debug;
-        if (typeof logger.verbose === 'function') log.verbose = logger.verbose;
-        if (typeof logger.silly === 'function') log.silly = logger.silly;
-    }
-
     if (!router || !router.hasOwnProperty('url') || !router.hasOwnProperty('realm')) throw ('Missing mandatory fields');
 
     const key = `${router.url}:${router.realm}`;
 
-    if (!instances.hasOwnProperty(key)) instances[key] = new WAMP(router);
+    if (!instances.hasOwnProperty(key)) instances[key] = new WAMP(router, logger ? {...silentLogger, ...logger} : silentLogger);
     if (method && params) return instances[key].run(method, params, sync, timeout);
     return instances[key];
 };
