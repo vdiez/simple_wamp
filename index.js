@@ -2,7 +2,7 @@
 
 const autobahn = require('autobahn');
 
-const silentLogger = {info() {}, warn() {}, error() {}, verbose() {}, debug() {}, silly() {}};
+const silent = {info() {}, warn() {}, error() {}, verbose() {}, debug() {}, silly() {}};
 autobahn.log.warn = () => {};
 autobahn.log.warn = () => {};
 autobahn.log.debug = () => {};
@@ -245,7 +245,7 @@ module.exports = ({router, logger, method, params, sync = false, timeout} = {}) 
 
     const key = `${router.url}:${router.realm}`;
 
-    if (!instances.hasOwnProperty(key)) instances[key] = new WAMP(router, logger ? {...silentLogger, ...logger} : silentLogger);
+    if (!instances.hasOwnProperty(key)) instances[key] = new WAMP(router, logger ? {...silent, ...logger} : silent);
     if (method && params) return instances[key].run(method, params, sync, timeout);
     return instances[key];
 };
