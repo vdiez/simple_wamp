@@ -4,7 +4,7 @@ const autobahn = require('autobahn');
 const Timeout = require('./timeouts');
 
 const silent = {info() {}, warn() {}, error() {}, verbose() {}, debug() {}, silly() {}};
-const timeout = new Timeout();
+const timeouts = new Timeout();
 
 autobahn.log.warn = () => {};
 autobahn.log.warn = () => {};
@@ -37,7 +37,7 @@ class WAMP {
 
     compute_delay(cb) {
         if (this.config.max_retries < 0 || this.retries < this.config.max_retries) {
-            timeout.setTimeout(() => {cb();}, this.delay * 1000);
+            timeouts.setTimeout(() => {cb();}, this.delay * 1000);
             this.retries++;
             this.delay *= this.config.retry_delay_growth;
             if (this.delay > this.config.max_retry_delay) this.delay = this.config.max_retry_delay;
@@ -128,7 +128,7 @@ class WAMP {
         let key, rejected = false;
         if (!sync) resolve();
         if (typeof timeout === 'number') {
-            timeout.setTimeout(() => {
+            timeouts.setTimeout(() => {
                 if (!continue_retrying_after_timeout) {
                     this.pending_connection = false;
                     this.reject_connection({timeout: true});//if pending_connection has not been resolved yet, we want it to reject
@@ -165,7 +165,7 @@ class WAMP {
                 .then(() => this.session[method](...params))
                 .then(result => {resolve_execution(result);})
                 .catch(err => {
-                    if (err?.error === 'wamp.error.no_such_procedure' && retry_if_unregistered && !rejected) timeout.setTimeout(() => exec(), 5000);
+                    if (err?.error === 'wamp.error.no_such_procedure' && retry_if_unregistered && !rejected) timeouts.setTimeout(() => exec(), 5000);
                     else reject_execution(err);
                 });
             exec();
@@ -233,7 +233,7 @@ class WAMP {
         this.pending_connection = false;
         while (this.queue.length > 0) this.queue.pop().reject({explicit_disconnect: true});
         this.force_close = true;
-        timeout.clearAllTimeouts();
+        timeouts.clearAllTimeouts();
         this.reject_connection({explicit_disconnect: true});
         return this.wamp.close();
     }
